@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+
+SCRIPT=`basename $0`
+
+function usage () {
+    echo ""
+    echo "$SCRIPT -s [security group id] -a [aws cli path]"
+    echo ""
+}
+
+while getopts s:a: OPT
+do
+    case $OPT in
+        "s" )
+            if [ ! -e $OPTTAG ]; then
+                echo "-s: ecurity group id must be existed"
+                usage
+                exit 1
+            fi
+            SG=$OPTARG
+            ;;
+        "a" )
+            AWS_CLI=$OPTARG
+            ;;
+        "*" )
+            usage
+            exit 1
+            ;;
+    esac
+done
+
+if [ -z $SG ]; then
+    usage
+    exit 1
+fi
+
+AWS=${AWS_CLI:-/usr/bin/aws}
+
+IP_LIST=$(${AWS} route53 get-checker-ip-ranges | jq -r '.CheckerIpRanges[]')
+
+for NEW_IP in $IP_LIST
+do
+    IP=$(${AWS} ec2 describe-security-groups --group-id ${SG}\
+        --query "SecurityGroups[].IpPermissions[].IpRanges[?CidrIp==\`$NEW_IP\`].CidrIp[]"\
+        --output text)
+
+    if [ ! -n "$IP" ] ; then
+        $AWS ec2 authorize-security-group-ingress\
+            --group-id ${SG} --protocol tcp --port 80 --cidr "${NEW_IP}"
+        echo "add $NEW_IP"
+    fi
+
+done
+exit 0
